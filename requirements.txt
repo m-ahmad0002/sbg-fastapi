@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+azure-search-documents
+azure-core
+openai
+python-dotenv
