@@ -9,20 +9,26 @@ from openai import AzureOpenAI
 # Load environment variables from .env file FIRST
 load_dotenv()
 
-# Now read environment variables
-SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
-SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
-INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX_NAME", "rag-documents")
+# Now read environment variables (strip whitespace - trailing space causes 404)
+def _getenv(key: str, default: str = None) -> str:
+    val = os.getenv(key) or default
+    return val.strip() if val else val
 
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-AZURE_OPENAI_EMBED_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT")
-AZURE_OPENAI_CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+SEARCH_ENDPOINT = _getenv("AZURE_SEARCH_ENDPOINT")
+SEARCH_API_KEY = _getenv("AZURE_SEARCH_API_KEY")
+INDEX_NAME = _getenv("AZURE_SEARCH_INDEX_NAME", "rag-documents")
+
+AZURE_OPENAI_ENDPOINT = _getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_KEY = _getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_EMBED_DEPLOYMENT = _getenv("AZURE_OPENAI_EMBED_DEPLOYMENT")
+AZURE_OPENAI_CHAT_DEPLOYMENT = _getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
 # Use a supported data-plane API version (2025-04-14 causes "API version not supported" for embeddings)
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+AZURE_OPENAI_API_VERSION = _getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
 
-# OpenAI SDK needs the classic Azure OpenAI endpoint (openai.azure.com), not the Foundry project URL.
-# Convert Foundry-style endpoint to classic format so embeddings work.
+# OpenAI SDK requires the classic Azure OpenAI endpoint (openai.azure.com).
+# Foundry URL (services.ai.azure.com) is converted to classic; if you get 404 on server,
+# set AZURE_OPENAI_ENDPOINT in App Service to the classic URL directly, e.g.:
+#   https://<your-resource-name>.openai.azure.com
 if AZURE_OPENAI_ENDPOINT and "services.ai.azure.com" in AZURE_OPENAI_ENDPOINT:
     parsed = urlparse(AZURE_OPENAI_ENDPOINT)
     resource_name = parsed.netloc.split(".")[0]
@@ -60,11 +66,14 @@ openai_client = AzureOpenAI(
 
 
 def generate_embedding(text: str):
-    response = openai_client.embeddings.create(
-        model=AZURE_OPENAI_EMBED_DEPLOYMENT,
-        input=text
-    )
-    return response.data[0].embedding
+    try:
+        response = openai_client.embeddings.create(
+            model=AZURE_OPENAI_EMBED_DEPLOYMENT,
+            input=text
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        raise RuntimeError(f"OpenAI Embeddings (404=wrong endpoint/deployment name): {e}") from e
 
 
 def retrieve_documents(query: str, top_k: int = 5):
@@ -76,12 +85,15 @@ def retrieve_documents(query: str, top_k: int = 5):
         fields="contentVector"
     )
 
-    results = search_client.search(
-        search_text=query,
-        vector_queries=[vector_query],
-        select=["content", "filename", "chunk_id"],
-        top=top_k
-    )
+    try:
+        results = search_client.search(
+            search_text=query,
+            vector_queries=[vector_query],
+            select=["content", "filename", "chunk_id"],
+            top=top_k
+        )
+    except Exception as e:
+        raise RuntimeError(f"Azure Search (404=wrong index/endpoint): {e}") from e
 
     documents = []
     for r in results:
@@ -123,15 +135,18 @@ Question:
 {question}
 """
 
-    response = openai_client.chat.completions.create(
-        model=AZURE_OPENAI_CHAT_DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0,
-        max_tokens=800
-    )
+    try:
+        response = openai_client.chat.completions.create(
+            model=AZURE_OPENAI_CHAT_DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0,
+            max_tokens=800
+        )
+    except Exception as e:
+        raise RuntimeError(f"OpenAI Chat (404=wrong endpoint/deployment name): {e}") from e
 
     answer = response.choices[0].message.content
 
