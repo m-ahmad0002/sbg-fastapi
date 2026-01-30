@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
@@ -17,7 +18,17 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 AZURE_OPENAI_EMBED_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBED_DEPLOYMENT")
 AZURE_OPENAI_CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+# Use a supported data-plane API version (2025-04-14 causes "API version not supported" for embeddings)
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+
+# OpenAI SDK needs the classic Azure OpenAI endpoint (openai.azure.com), not the Foundry project URL.
+# Convert Foundry-style endpoint to classic format so embeddings work.
+if AZURE_OPENAI_ENDPOINT and "services.ai.azure.com" in AZURE_OPENAI_ENDPOINT:
+    parsed = urlparse(AZURE_OPENAI_ENDPOINT)
+    resource_name = parsed.netloc.split(".")[0]
+    AZURE_OPENAI_ENDPOINT = f"https://{resource_name}.openai.azure.com"
+    if AZURE_OPENAI_API_VERSION and AZURE_OPENAI_API_VERSION >= "2025-01-01":
+        AZURE_OPENAI_API_VERSION = "2024-08-01-preview"
 
 # Validate required environment variables
 if not SEARCH_ENDPOINT:
