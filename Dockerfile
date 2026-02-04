@@ -4,7 +4,10 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /code
 
-# Install system dependencies
+# Ensure project root is on PYTHONPATH
+ENV PYTHONPATH=/code
+
+# Install system dependencies (only if needed by any wheels)
 RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
@@ -15,8 +18,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# Copy application code
-COPY ./app /code/app
+# Copy ALL project files (app/, db/, etc.)
+COPY . /code
 
 # Expose port
 EXPOSE 8000
